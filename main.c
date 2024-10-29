@@ -137,10 +137,9 @@ serve_file_while_connected(const char *path, int server_fd) {
   return err;
 }
 
-
 static int
-serve_file(const char *path, uint16_t port) {
-  static int notify_user = 1;
+serve_file(const char *path, uint16_t port, int notify_user) {
+
   char ip[INET_ADDRSTRLEN];
   struct ifaddrs *ifaddr;
   struct sockaddr_in sin;
@@ -282,6 +281,7 @@ find_pid(const char* name) {
 int
 main() {
   uint16_t port = 3232;
+  int notify_user = 1;
   pid_t pid;
 
   syscall(SYS_thr_set_name, -1, "klogsrv.elf");
@@ -296,7 +296,8 @@ main() {
   }
 
   while(1) {
-    serve_file("/dev/klog", port);
+    serve_file("/dev/klog", port, notify_user);
+    notify_user = 0;
     sleep(3);
   }
 
