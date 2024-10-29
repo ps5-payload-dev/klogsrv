@@ -140,6 +140,7 @@ serve_file_while_connected(const char *path, int server_fd) {
 
 static int
 serve_file(const char *path, uint16_t port) {
+  static int notify_user = 1;
   char ip[INET_ADDRSTRLEN];
   struct ifaddrs *ifaddr;
   struct sockaddr_in sin;
@@ -174,10 +175,12 @@ serve_file(const char *path, uint16_t port) {
     if(!strncmp("0.", ip, 2)) {
       continue;
     }
-
-    notify("Serving /dev/klog on %s:%d (%s)", ip, port, ifa->ifa_name);
+    if(notify_user) {
+      notify("Serving /dev/klog on %s:%d (%s)", ip, port, ifa->ifa_name);
+    }
     ifaddr_wait = 0;
   }
+  notify_user = 0;
 
   freeifaddrs(ifaddr);
 
