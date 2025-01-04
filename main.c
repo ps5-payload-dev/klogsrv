@@ -285,6 +285,8 @@ main() {
   pid_t pid;
 
   syscall(SYS_thr_set_name, -1, "klogsrv.elf");
+  signal(SIGPIPE, SIG_IGN);
+
   klog_printf("Socket server was compiled at %s %s\n", __DATE__, __TIME__);
 
   while((pid=find_pid("klogsrv.elf")) > 0) {
