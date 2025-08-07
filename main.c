@@ -65,9 +65,10 @@ serve_file_while_connected(const char *path, int server_fd) {
   fd_set input_set;
   fd_set temp_set;
   int client_fd;
+  char buf[255];
+  ssize_t len;
   int file_fd;
   int err = 0;
-  char ch;
 
   if((file_fd=open(path, O_RDONLY)) < 0) {
     klog_perror("open");
@@ -108,7 +109,7 @@ serve_file_while_connected(const char *path, int server_fd) {
 
     // new data from file
     if(FD_ISSET(file_fd, &temp_set)) {
-      if(read(file_fd, &ch, 1) != 1) {
+      if((len=read(file_fd, buf, sizeof(buf))) < 1) {
 	klog_perror("read");
 	err = -1;
 	break;
@@ -116,7 +117,7 @@ serve_file_while_connected(const char *path, int server_fd) {
 
       for(client_fd=0; client_fd<FD_SETSIZE; client_fd++) {
 	if(FD_ISSET(client_fd, &output_set)) {
-	  if(write(client_fd, &ch, 1) != 1) {
+	  if(write(client_fd, buf, len) != len) {
 	    FD_CLR(client_fd, &output_set);
 	    close(client_fd);
 	    nb_connections--;
