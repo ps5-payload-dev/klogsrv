@@ -1,4 +1,4 @@
-/* Copyright (C) 2023 John Törnblom
+/* Copyright (C) 2025 John Törnblom
 
 This program is free software; you can redistribute it and/or modify it
 under the terms of the GNU General Public License as published by the
@@ -13,6 +13,8 @@ GNU General Public License for more details.
 You should have received a copy of the GNU General Public License
 along with this program; see the file COPYING. If not, see
 <http://www.gnu.org/licenses/>.  */
+
+#include <sys/types.h>
 
 #include <arpa/inet.h>
 #include <fcntl.h>
@@ -29,7 +31,13 @@ along with this program; see the file COPYING. If not, see
 #include <sys/syscall.h>
 #include <unistd.h>
 
+#ifdef __PROSPERO__
 #include <ps5/klog.h>
+#endif
+
+#ifdef __ORBIS__
+#include <ps4/klog.h>
+#endif
 
 
 typedef struct notify_request {
