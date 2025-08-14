@@ -314,7 +314,17 @@ main() {
   syscall(SYS_thr_set_name, -1, "klogsrv.elf");
   signal(SIGPIPE, SIG_IGN);
 
-  klog_printf("Socket server was compiled at %s %s\n", __DATE__, __TIME__);
+
+  puts(".----------------------------------------------------------------------.");
+  puts("|  _      _                                                   _    __  |");
+  puts("| | | __ | |   ___     __ _   ___   _ __  __   __       ___  | |  / _| |");
+  puts("| | |/ / | |  / _ \\   / _` | / __| | '__| \\ \\ / /      / _ \\ | | | |_  |");
+  puts("| |   <  | | | (_) | | (_| | \\__ \\ | |     \\ V /   _  |  __/ | | |  _| |");
+  puts("| |_|\\_\\ |_|  \\___/   \\__/ | |___/ |_|      \\_/   (_)  \\___| |_| |_|   |");
+  puts("|                     |___/                                            |");
+  puts("|                                                                      |");
+  printf("| %-12s                Copyright (C) 2025 John Törnblom |\n", VERSION_TAG);
+  puts("'----------------------------------------------------------------------'");
 
   while((pid=find_pid("klogsrv.elf")) > 0) {
     if(kill(pid, SIGKILL)) {
