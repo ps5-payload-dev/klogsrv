@@ -17,6 +17,7 @@ along with this program; see the file COPYING. If not, see
 #include <sys/types.h>
 
 #include <arpa/inet.h>
+#include <errno.h>
 #include <fcntl.h>
 #include <ifaddrs.h>
 #include <netinet/in.h>
@@ -40,6 +41,24 @@ along with this program; see the file COPYING. If not, see
 #endif
 
 
+#define LOG_PUTS(s) {				\
+    puts(s);					\
+    klog_puts(s);				\
+  }
+
+#define LOG_PRINTF(s, ...) {				\
+    fprintf(stdout, s, __VA_ARGS__);			\
+    klog_printf(s, __VA_ARGS__);			\
+  }
+
+#define LOG_PERROR(s) {					  \
+    fprintf(stderr, "%s:%d:%s: %s\n", __FILE__, __LINE__, \
+	    s, strerror(errno));			  \
+    klog_printf("%s:%d:%s: %s\n", __FILE__, __LINE__,	  \
+		s, strerror(errno));			  \
+}
+
+
 typedef struct notify_request {
   char useless[45];
   char message[3075];
@@ -60,8 +79,7 @@ notify(const char *fmt, ...) {
   va_end(args);
 
   sceKernelSendNotificationRequest(0, &req, sizeof req, 0);
-  klog_puts(req.message);
-  puts(req.message);
+  LOG_PUTS(req.message);
 }
 
 
@@ -79,7 +97,7 @@ serve_file_while_connected(const char *path, int server_fd) {
   int err = 0;
 
   if((file_fd=open(path, O_RDONLY)) < 0) {
-    klog_perror("open");
+    LOG_PERROR("open");
     return -1;
   }
 
@@ -99,7 +117,7 @@ serve_file_while_connected(const char *path, int server_fd) {
     case 0:
       continue;
     case -1:
-      klog_perror("select");
+      LOG_PERROR("select");
       close(file_fd);
       return -1;
     }
@@ -107,7 +125,7 @@ serve_file_while_connected(const char *path, int server_fd) {
     // new connection
     if(FD_ISSET(server_fd, &temp_set)) {
       if((client_fd=accept(server_fd, NULL, NULL)) < 0) {
-	klog_perror("accept");
+	LOG_PERROR("accept");
 	err = -1;
 	break;
       }
@@ -118,7 +136,7 @@ serve_file_while_connected(const char *path, int server_fd) {
     // new data from file
     if(FD_ISSET(file_fd, &temp_set)) {
       if((len=read(file_fd, buf, sizeof(buf))) < 1) {
-	klog_perror("read");
+	LOG_PERROR("read");
 	err = -1;
 	break;
       }
@@ -157,7 +175,7 @@ serve_file(const char *path, uint16_t port, int notify_user) {
   int sockfd;
 
   if(getifaddrs(&ifaddr) == -1) {
-    klog_perror("getifaddrs");
+    LOG_PERROR("getifaddrs");
     return -1;
   }
 
@@ -197,12 +215,12 @@ serve_file(const char *path, uint16_t port, int notify_user) {
   }
 
   if((sockfd=socket(AF_INET, SOCK_STREAM, 0)) < 0) {
-    klog_perror("socket");
+    LOG_PERROR("socket");
     return -1;
   }
 
   if(setsockopt(sockfd, SOL_SOCKET, SO_REUSEADDR, &(int){1}, sizeof(int)) < 0) {
-    klog_perror("setsockopt");
+    LOG_PERROR("setsockopt");
     return -1;
   }
 
@@ -212,12 +230,12 @@ serve_file(const char *path, uint16_t port, int notify_user) {
   sin.sin_port = htons(port);
 
   if(bind(sockfd, (struct sockaddr*)&sin, sizeof(sin)) < 0) {
-    klog_perror("bind");
+    LOG_PERROR("bind");
     return -1;
   }
 
   if(listen(sockfd, 5) < 0) {
-    klog_perror("listen");
+    LOG_PERROR("listen");
     return -1;
   }
 
@@ -226,7 +244,7 @@ serve_file(const char *path, uint16_t port, int notify_user) {
     FD_ZERO(&set);
     FD_SET(sockfd, &set);
     if(select(sockfd+1, &set, NULL, NULL, NULL) < 0) {
-      klog_perror("select");
+      LOG_PERROR("select");
       return -1;
     }
 
@@ -255,17 +273,17 @@ find_pid(const char* name) {
   uint8_t *buf;
 
   if(sysctl(mib, 4, 0, &buf_size, 0, 0)) {
-    klog_perror("sysctl");
+    LOG_PERROR("sysctl");
     return -1;
   }
 
   if(!(buf=malloc(buf_size))) {
-    klog_perror("malloc");
+    LOG_PERROR("malloc");
     return -1;
   }
 
   if(sysctl(mib, 4, buf, &buf_size, 0, 0)) {
-    klog_perror("sysctl");
+    LOG_PERROR("sysctl");
     free(buf);
     return -1;
   }
@@ -300,7 +318,7 @@ main() {
 
   while((pid=find_pid("klogsrv.elf")) > 0) {
     if(kill(pid, SIGKILL)) {
-      klog_perror("kill");
+      LOG_PERROR("kill");
       return EXIT_FAILURE;
     }
     sleep(1);
