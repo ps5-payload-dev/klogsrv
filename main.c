@@ -322,8 +322,7 @@ main() {
   puts("| |   <  | | | (_) | | (_| | \\__ \\ | |     \\ V /   _  |  __/ | | |  _| |");
   puts("| |_|\\_\\ |_|  \\___/   \\__/ | |___/ |_|      \\_/   (_)  \\___| |_| |_|   |");
   puts("|                     |___/                                            |");
-  puts("|                                                                      |");
-  printf("| %-20s                Copyright (C) 2025 John Törnblom |\n", VERSION_TAG);
+  printf("| %-35s Copyright (C) 2025 John Törnblom |\n", VERSION_TAG);
   puts("'----------------------------------------------------------------------'");
 
   while((pid=find_pid("klogsrv.elf")) > 0) {
