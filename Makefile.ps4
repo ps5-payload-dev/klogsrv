@@ -26,7 +26,7 @@ endif
 ELF := klogsrv-ps4.elf
 
 VERSION_TAG := $(shell git describe --abbrev=6 --dirty --always --tags)
-CFLAGS := -Wall -Werror -DVERSION_TAG=\"$(VERSION_TAG)\"
+CFLAGS := -Wall -Werror -DVERSION_TAG=\"$(VERSION_TAG)\" -O2
 
 all: $(ELF)
 
