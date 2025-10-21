@@ -166,7 +166,6 @@ serve_file_while_connected(const char *path, int server_fd) {
 
 static int
 serve_file(const char *path, uint16_t port, int notify_user) {
-
   char ip[INET_ADDRSTRLEN];
   struct ifaddrs *ifaddr;
   struct sockaddr_in sin;
