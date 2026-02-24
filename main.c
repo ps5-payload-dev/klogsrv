@@ -28,6 +28,7 @@ along with this program; see the file COPYING. If not, see
 #include <stdlib.h>
 #include <string.h>
 #include <sys/socket.h>
+#include <sys/stat.h>
 #include <sys/sysctl.h>
 #include <sys/syscall.h>
 #include <unistd.h>
@@ -58,6 +59,10 @@ along with this program; see the file COPYING. If not, see
 		s, strerror(errno));			  \
 }
 
+#define LOCAL_LOG_DIR "/data/klog"
+#define LOCAL_LOG_PATH "/data/klog/klog.log"
+#define LOCAL_LOG_BACKUPS 10
+
 
 typedef struct notify_request {
   char useless[45];
@@ -82,11 +87,104 @@ notify(const char *fmt, ...) {
   LOG_PUTS(req.message);
 }
 
+static int
+write_all(int fd, const char *buf, size_t len) {
+  ssize_t nb_bytes;
+  size_t off = 0;
+
+  while(off < len) {
+    nb_bytes = write(fd, buf + off, len - off);
+    if(nb_bytes < 0) {
+      if(errno == EINTR) {
+	continue;
+      }
+      return -1;
+    }
+    if(nb_bytes == 0) {
+      errno = EIO;
+      return -1;
+    }
+
+    off += nb_bytes;
+  }
+
+  return 0;
+}
 
 static int
-serve_file_while_connected(const char *path, int server_fd) {
+format_version_path(char *dst, size_t dst_size, const char *path, int version) {
+  int len;
+
+  len = snprintf(dst, dst_size, "%s.%d", path, version);
+  if(len < 0 || (size_t)len >= dst_size) {
+    errno = ENAMETOOLONG;
+    return -1;
+  }
+
+  return 0;
+}
+
+static int
+rotate_local_log(const char *path, int backups) {
+  char src[128];
+  char dst[128];
+
+  if(backups < 1) {
+    return 0;
+  }
+
+  for(int idx=backups; idx>=1; idx--) {
+    if(format_version_path(dst, sizeof(dst), path, idx) < 0) {
+      LOG_PERROR("snprintf");
+      return -1;
+    }
+
+    if(idx == 1) {
+      int path_len = snprintf(src, sizeof(src), "%s", path);
+      if(path_len < 0 || path_len >= (int)sizeof(src)) {
+	errno = ENAMETOOLONG;
+	LOG_PERROR("snprintf");
+	return -1;
+      }
+    } else if(format_version_path(src, sizeof(src), path, idx - 1) < 0) {
+      LOG_PERROR("snprintf");
+      return -1;
+    }
+
+    if(rename(src, dst) < 0 && errno != ENOENT) {
+      LOG_PERROR("rename");
+      return -1;
+    }
+  }
+
+  return 0;
+}
+
+static int
+open_local_log_file(void) {
+  int fd;
+
+  if(mkdir(LOCAL_LOG_DIR, 0777) < 0 && errno != EEXIST) {
+    LOG_PERROR("mkdir");
+    return -1;
+  }
+
+  if(rotate_local_log(LOCAL_LOG_PATH, LOCAL_LOG_BACKUPS) < 0) {
+    return -1;
+  }
+
+  if((fd=open(LOCAL_LOG_PATH, O_WRONLY|O_CREAT|O_TRUNC, 0644)) < 0) {
+    LOG_PERROR("open");
+    return -1;
+  }
+
+  return fd;
+}
+
+
+static int
+serve_file_while_connected(const char *path, int server_fd, int log_fd) {
   struct timeval timeout;
-  size_t nb_connections;
   fd_set output_set;
   fd_set input_set;
   fd_set temp_set;
@@ -94,6 +192,7 @@ serve_file_while_connected(const char *path, int server_fd) {
   char buf[255];
   ssize_t len;
   int file_fd;
+  int log_enabled;
   int err = 0;
 
   if((file_fd=open(path, O_RDONLY)) < 0) {
@@ -107,19 +206,19 @@ serve_file_while_connected(const char *path, int server_fd) {
   FD_SET(server_fd, &input_set);
   FD_SET(file_fd, &input_set);
 
-  timeout.tv_sec = 0;
-  timeout.tv_usec = 1000*10; //10ms
-  nb_connections = 0;
+  log_enabled = (log_fd >= 0);
 
-  do {
+  while(1) {
+    timeout.tv_sec = 0;
+    timeout.tv_usec = 1000*10; //10ms
     temp_set = input_set;
     switch(select(FD_SETSIZE, &temp_set, NULL, NULL, &timeout)) {
     case 0:
       continue;
     case -1:
       LOG_PERROR("select");
-      close(file_fd);
-      return -1;
+      err = -1;
+      goto done;
     }
 
     // new connection
@@ -130,15 +229,22 @@ serve_file_while_connected(const char *path, int server_fd) {
 	break;
       }
       FD_SET(client_fd, &output_set);
-      nb_connections++;
     }
 
     // new data from file
     if(FD_ISSET(file_fd, &temp_set)) {
-      if((len=read(file_fd, buf, sizeof(buf))) < 1) {
+      if((len=read(file_fd, buf, sizeof(buf))) < 0) {
 	LOG_PERROR("read");
 	err = -1;
 	break;
+      }
+      if(len == 0) {
+	continue;
+      }
+
+      if(log_enabled && write_all(log_fd, buf, len) < 0) {
+	LOG_PERROR("write");
+	log_enabled = 0;
       }
 
       for(client_fd=0; client_fd<FD_SETSIZE; client_fd++) {
@@ -146,13 +252,13 @@ serve_file_while_connected(const char *path, int server_fd) {
 	  if(write(client_fd, buf, len) != len) {
 	    FD_CLR(client_fd, &output_set);
 	    close(client_fd);
-	    nb_connections--;
 	  }
 	}
       }
     }
-  } while(nb_connections > 0);
+  }
 
+done:
   for(client_fd=0; client_fd<FD_SETSIZE; client_fd++) {
     if(FD_ISSET(client_fd, &output_set)) {
       FD_CLR(client_fd, &output_set);
@@ -165,12 +271,11 @@ serve_file_while_connected(const char *path, int server_fd) {
 }
 
 static int
-serve_file(const char *path, uint16_t port, int notify_user) {
+serve_file(const char *path, uint16_t port, int notify_user, int log_fd) {
   char ip[INET_ADDRSTRLEN];
   struct ifaddrs *ifaddr;
   struct sockaddr_in sin;
   int ifaddr_wait = 1;
-  fd_set set;
   int sockfd;
 
   if(getifaddrs(&ifaddr) == -1) {
@@ -205,8 +310,6 @@ serve_file(const char *path, uint16_t port, int notify_user) {
     }
     ifaddr_wait = 0;
   }
-  notify_user = 0;
-
   freeifaddrs(ifaddr);
 
   if(ifaddr_wait) {
@@ -220,6 +323,7 @@ serve_file(const char *path, uint16_t port, int notify_user) {
 
   if(setsockopt(sockfd, SOL_SOCKET, SO_REUSEADDR, &(int){1}, sizeof(int)) < 0) {
     LOG_PERROR("setsockopt");
+    close(sockfd);
     return -1;
   }
 
@@ -230,32 +334,22 @@ serve_file(const char *path, uint16_t port, int notify_user) {
 
   if(bind(sockfd, (struct sockaddr*)&sin, sizeof(sin)) < 0) {
     LOG_PERROR("bind");
+    close(sockfd);
     return -1;
   }
 
   if(listen(sockfd, 5) < 0) {
     LOG_PERROR("listen");
+    close(sockfd);
     return -1;
   }
 
-  while(1) {
-    // wait for a connection
-    FD_ZERO(&set);
-    FD_SET(sockfd, &set);
-    if(select(sockfd+1, &set, NULL, NULL, NULL) < 0) {
-      LOG_PERROR("select");
-      return -1;
-    }
-
-    // someone wants to connect
-    if(FD_ISSET(sockfd, &set)) {
-      if(serve_file_while_connected(path, sockfd) < 0) {
-	close(sockfd);
-	return -1;
-      }
-    }
+  if(serve_file_while_connected(path, sockfd, log_fd) < 0) {
+    close(sockfd);
+    return -1;
   }
 
+  close(sockfd);
   return 0;
 }
 
@@ -307,6 +401,7 @@ find_pid(const char* name) {
 int
 main() {
   uint16_t port = 3232;
+  int local_log_fd;
   int notify_user = 1;
   pid_t pid;
 
@@ -321,7 +416,7 @@ main() {
   puts("| |   <  | | | (_) | | (_| | \\__ \\ | |     \\ V /   _  |  __/ | | |  _| |");
   puts("| |_|\\_\\ |_|  \\___/   \\__/ | |___/ |_|      \\_/   (_)  \\___| |_| |_|   |");
   puts("|                     |___/                                            |");
-  printf("| %-35s Copyright (C) 2025 John Törnblom |\n", VERSION_TAG);
+  printf("| %-25s Copyright (C) 2026 John Törnblom, Drakmor |\n", VERSION_TAG);
   puts("'----------------------------------------------------------------------'");
 
   while((pid=find_pid("klogsrv.elf")) > 0) {
@@ -332,8 +427,13 @@ main() {
     sleep(1);
   }
 
+  if((local_log_fd=open_local_log_file()) < 0) {
+    return EXIT_FAILURE;
+  }
+  notify("Writing local klog to %s", LOCAL_LOG_PATH);
+
   while(1) {
-    serve_file("/dev/klog", port, notify_user);
+    serve_file("/dev/klog", port, notify_user, local_log_fd);
     notify_user = 0;
     sleep(3);
   }
