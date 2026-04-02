@@ -219,6 +219,7 @@ serve_file(const char *path, uint16_t port, int notify_user) {
 
   if(setsockopt(sockfd, SOL_SOCKET, SO_REUSEADDR, &(int){1}, sizeof(int)) < 0) {
     LOG_PERROR("setsockopt");
+    close(sockfd);
     return -1;
   }
 
@@ -229,11 +230,13 @@ serve_file(const char *path, uint16_t port, int notify_user) {
 
   if(bind(sockfd, (struct sockaddr*)&sin, sizeof(sin)) < 0) {
     LOG_PERROR("bind");
+    close(sockfd);
     return -1;
   }
 
   if(listen(sockfd, 5) < 0) {
     LOG_PERROR("listen");
+    close(sockfd);
     return -1;
   }
 
@@ -243,6 +246,7 @@ serve_file(const char *path, uint16_t port, int notify_user) {
     FD_SET(sockfd, &set);
     if(select(sockfd+1, &set, NULL, NULL, NULL) < 0) {
       LOG_PERROR("select");
+      close(sockfd);
       return -1;
     }
 
