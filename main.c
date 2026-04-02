@@ -70,10 +70,9 @@ int sceKernelSendNotificationRequest(int, notify_request_t*, size_t, int);
 
 static void
 notify(const char *fmt, ...) {
-  notify_request_t req;
-  va_list args;
+  notify_request_t req = {0};
+  va_list args = {0};
 
-  bzero(&req, sizeof req);
   va_start(args, fmt);
   vsnprintf(req.message, sizeof req.message, fmt, args);
   va_end(args);
